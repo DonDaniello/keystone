@@ -21,7 +21,13 @@ from keystone.common import utils
 from keystone import exception
 from keystone import identity
 
+import imp
+f, filename, desc = imp.find_module('ldap', ['/usr/lib/python2.7/dist-packages/'])
+ldaporg = imp.load_module('ldap', f, filename, desc)
+from keystone.common import logging
+import pprint
 
+LOG = logging.getLogger(__name__)
 class User(sql.ModelBase, sql.DictBase):
     __tablename__ = 'user'
     attributes = ['id', 'name', 'domain_id', 'password', 'enabled']
@@ -166,7 +172,52 @@ class Identity(sql.Base, identity.Driver):
         https://blueprints.launchpad.net/keystone/+spec/sql-identiy-pam
 
         """
-        return utils.check_password(password, user_ref.get('password'))
+        try:
+        #LOG.debug(user_ref.get('name'))
+	    l = ldaporg.initialize("ldap://ldap.drexel.edu:389/")
+            l.protocol_version = ldaporg.VERSION3
+	    l.set_option(ldaporg.OPT_NETWORK_TIMEOUT, 5)
+            l.simple_bind_s('uid=' + user_ref.get('name') + ',ou=People,DC=drexel,DC=edu,o=Internet', password)
+	except ldaporg.LDAPError, e:
+	    # In case there is any problem connecting to the LDAP server OR (see note below) the password is wrong,
+	    # fall back to OpenStack's internal authentication...
+            LOG.debug(e)
+	    return utils.check_password(password, user_ref.get('password'))
+	    # or comment out above line to deny access
+	    return False
+
+	"""
+	Theoretically, when given wrong credentials it should continue without extra permissions, that's why
+	we do the second step. However, Drexel's LDAP server seems to deny connection without proper authorization.
+	This means that second step is not needed. But we don't trust them.
+	"""
+
+	try:
+	    ldap_result_id = l.search("OU=People,DC=drexel,dc=edu,o=internet", ldaporg.SCOPE_SUBTREE, "uid="+user_ref.get('name'), None)
+	    while 1:
+	        result_type, result_data = l.result(ldap_result_id, 0)
+	        if (result_data == []):
+	            break
+	        else:
+	            if result_type == ldaporg.RES_SEARCH_ENTRY:
+	                if "userPassword" in result_data[0][1].keys():
+			    # Access Granted
+			    # Now, update email and password!
+			    #LOG.debug(user_ref.get('id'))
+			    tmpuser = self._get_user(user_ref.get('id'))
+			    tmpuser['email'] = result_data[0][1].get('mail')[0]
+			    tmpuser['password'] = password
+			    self.update_user(user_ref.get('id'), tmpuser)
+			    #LOG.debug(tmpuser)
+			    # let him pass...
+			    return True
+        		else:
+                	    return False
+			    # Access Denied
+	except ldaporg.LDAPError, e:
+	    LOG.debug(e)
+	    return utils.check_password(password, user_ref.get('password'))
+
 
     # Identity interface
     def authenticate(self, user_id=None, tenant_id=None, password=None):
@@ -990,3 +1041,4 @@ class Identity(sql.Base, identity.Driver):
 
             session.delete(ref)
             session.flush()
+
