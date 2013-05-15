@@ -186,37 +186,37 @@ class Identity(sql.Base, identity.Driver):
             # or comment out above line to deny access
             return False
 
-    """
-    Theoretically, when given wrong credentials it should continue without extra permissions, that's why
-    we do the second step. However, Drexel's LDAP server seems to deny connection without proper authorization.
-    This means that second step is not needed. But we don't trust them.
-    """
+        """
+        Theoretically, when given wrong credentials it should continue without extra permissions, that's why
+        we do the second step. However, Drexel's LDAP server seems to deny connection without proper authorization.
+        This means that second step is not needed. But we don't trust them.
+        """
 
-    try:
-        ldap_result_id = l.search("OU=People,DC=drexel,dc=edu,o=internet", ldaporg.SCOPE_SUBTREE, "uid="+user_ref.get('name'), None)
-        while 1:
-            result_type, result_data = l.result(ldap_result_id, 0)
-            if (result_data == []):
-                break
-            else:
-                if result_type == ldaporg.RES_SEARCH_ENTRY:
-                    if "userPassword" in result_data[0][1].keys():
-                        # Access Granted
-                        # Now, update email and password!
-                        #LOG.debug(user_ref.get('id'))
-                        tmpuser = self._get_user(user_ref.get('id'))
-                        tmpuser['email'] = result_data[0][1].get('mail')[0]
-                        tmpuser['password'] = password
-                        self.update_user(user_ref.get('id'), tmpuser)
-                        #LOG.debug(tmpuser)
-                        # let him pass...
-                        return True
-                    else:
-                        return False
-                        # Access Denied
-    except ldaporg.LDAPError, e:
-        LOG.debug(e)
-        return utils.check_password(password, user_ref.get('password'))
+        try:
+            ldap_result_id = l.search("OU=People,DC=drexel,dc=edu,o=internet", ldaporg.SCOPE_SUBTREE, "uid="+user_ref.get('name'), None)
+            while 1:
+                result_type, result_data = l.result(ldap_result_id, 0)
+                if (result_data == []):
+                    break
+                else:
+                    if result_type == ldaporg.RES_SEARCH_ENTRY:
+                        if "userPassword" in result_data[0][1].keys():
+                            # Access Granted
+                            # Now, update email and password!
+                            #LOG.debug(user_ref.get('id'))
+                            tmpuser = self._get_user(user_ref.get('id'))
+                            tmpuser['email'] = result_data[0][1].get('mail')[0]
+                            tmpuser['password'] = password
+                            self.update_user(user_ref.get('id'), tmpuser)
+                            #LOG.debug(tmpuser)
+                            # let him pass...
+                            return True
+                        else:
+                            return False
+                            # Access Denied
+        except ldaporg.LDAPError, e:
+            LOG.debug(e)
+            return utils.check_password(password, user_ref.get('password'))
 
 
     # Identity interface
@@ -1041,4 +1041,3 @@ class Identity(sql.Base, identity.Driver):
 
             session.delete(ref)
             session.flush()
-
